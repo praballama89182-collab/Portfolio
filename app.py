@@ -3,51 +3,63 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Portfolio Metrics Dashboard", layout="wide", page_icon="📊")
 
 # =================================================================
-# THEME / STYLING  (cool-toned, high-contrast, bold typography)
+# THEME / STYLING  (heat-wave palette: amber -> orange -> red, bold type)
 # =================================================================
-COLOR_SPEND = "#2563EB"   # blue
-COLOR_SALES = "#0EA5E9"   # sky blue
-COLOR_ACOS = "#4F46E5"    # indigo
-COLOR_ROAS = "#7C3AED"    # violet
-COLOR_TREND = "#0891B2"   # cyan (trendline)
+COLOR_SPEND = "#F97316"   # orange
+COLOR_SALES = "#DC2626"   # red
+COLOR_ACOS = "#B91C1C"    # deep red
+COLOR_ROAS = "#F59E0B"    # amber
 
 GROUP_COLORS = {
-    "CBT": "#2563EB",       # blue
-    "Exclusive": "#7C3AED", # violet
-    "Ageing": "#0891B2",    # cyan
-    "FBA": "#0EA5E9",       # sky blue
+    "CBT": "#FBBF24",       # amber-400
+    "Exclusive": "#FB923C", # orange-400
+    "Ageing": "#F87171",    # red-400
+    "FBA": "#DC2626",       # red-600
 }
 
-# Single-hue, cool colormaps for conditional formatting (no rainbow/warm gradients)
-CMAP_ACOS = "Blues"
-CMAP_ROAS = "PuBu"
+def human_format(num, prefix="", decimals=1):
+    """Abbreviate large numbers (1.2K, 3.9M, ...) so labels/axes stay readable."""
+    if num is None or pd.isna(num):
+        return "-"
+    sign = "-" if num < 0 else ""
+    num = abs(num)
+    if num >= 1_000_000_000:
+        val = f"{num / 1_000_000_000:.{decimals}f}B"
+    elif num >= 1_000_000:
+        val = f"{num / 1_000_000:.{decimals}f}M"
+    elif num >= 1_000:
+        val = f"{num / 1_000:.{decimals}f}K"
+    else:
+        val = f"{num:,.0f}"
+    return f"{sign}{prefix}{val}"
 
 st.markdown(
     """
     <style>
-    .stApp { background-color: #F5F7FA; }
+    .stApp { background-color: #FFFBF5; }
     h1, h2, h3 {
-        color: #0F172A;
+        color: #1C1917;
         font-family: 'Google Sans', 'Segoe UI', sans-serif;
         font-weight: 800 !important;
     }
     p, li, label, .stMarkdown, .stCaption { font-weight: 500; }
-    .stCaption, [data-testid="stCaptionContainer"] { font-weight: 600 !important; color: #334155 !important; }
+    .stCaption, [data-testid="stCaptionContainer"] { font-weight: 600 !important; color: #57534E !important; }
     .kpi-card {
         background: #FFFFFF;
         border-radius: 12px;
         padding: 16px 18px 14px 18px;
-        box-shadow: 0 1px 3px rgba(15,23,42,0.12), 0 1px 2px rgba(15,23,42,0.08);
+        box-shadow: 0 1px 3px rgba(28,25,23,0.12), 0 1px 2px rgba(28,25,23,0.08);
         border-top: 5px solid var(--accent);
         text-align: left;
     }
     .kpi-label {
         font-size: 13px;
-        color: #334155;
+        color: #57534E;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.04em;
@@ -56,24 +68,27 @@ st.markdown(
     .kpi-value {
         font-size: 28px;
         font-weight: 800;
-        color: #0F172A;
+        color: #1C1917;
     }
     div[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
 
-    /* HTML metrics table (bold, high-contrast, cool tones) */
-    .metrics-table-wrap { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,0.12); }
+    /* HTML metrics table (bold, high-contrast, heat-wave tones) */
+    .metrics-table-wrap { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 3px rgba(28,25,23,0.12); }
     table.metrics-table { border-collapse: collapse; width: 100%; font-size: 15px; background: #FFFFFF; }
     table.metrics-table th {
-        background: #0F172A; color: #FFFFFF; font-weight: 800;
+        background: #1C1917; color: #FFFFFF; font-weight: 800;
         text-align: right; padding: 10px 14px; white-space: nowrap;
     }
     table.metrics-table th:first-child { text-align: left; }
     table.metrics-table td {
-        padding: 10px 14px; text-align: right; font-weight: 700; color: #0F172A;
-        border-bottom: 1px solid #E2E8F0; white-space: nowrap;
+        padding: 10px 14px; text-align: right; font-weight: 700; color: #1C1917;
+        border-bottom: 1px solid #E7E5E4; white-space: nowrap;
     }
     table.metrics-table td:first-child { text-align: left; font-weight: 800; }
-    table.metrics-table tr.total-row td { background: #E2E8F0; font-weight: 800; }
+    table.metrics-table tr.total-row td { background: #F5F5F4; font-weight: 800; }
+
+    /* Horizontally scrollable day-wise chart container */
+    .scroll-chart-wrap { overflow-x: auto; overflow-y: hidden; border-radius: 10px; border: 1px solid #E7E5E4; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -225,18 +240,18 @@ st.subheader(f"Overview — {', '.join(selected_countries)}")
 
 t = totals.iloc[0]
 kpis = [
-    ("IMPRESSIONS", f"{t['Impressions']:,.0f}", COLOR_SPEND),
-    ("CLICKS", f"{t['Clicks']:,.0f}", COLOR_SPEND),
-    ("SPEND", f"${t['Spend']:,.2f}", COLOR_SPEND),
-    ("SALES", f"${t['Sales']:,.2f}", COLOR_SALES),
-    ("ACOS", f"{t['ACOS %']:.2f}%", COLOR_ACOS),
-    ("ROAS", f"{t['ROAS']:.2f}", COLOR_ROAS),
+    ("IMPRESSIONS", human_format(t['Impressions']), f"{t['Impressions']:,.0f}", COLOR_SPEND),
+    ("CLICKS", human_format(t['Clicks']), f"{t['Clicks']:,.0f}", COLOR_SPEND),
+    ("SPEND", human_format(t['Spend'], prefix="$"), f"${t['Spend']:,.2f}", COLOR_SPEND),
+    ("SALES", human_format(t['Sales'], prefix="$"), f"${t['Sales']:,.2f}", COLOR_SALES),
+    ("ACOS", f"{t['ACOS %']:.2f}%", f"{t['ACOS %']:.2f}%", COLOR_ACOS),
+    ("ROAS", f"{t['ROAS']:.2f}", f"{t['ROAS']:.2f}", COLOR_ROAS),
 ]
 cols = st.columns(len(kpis))
-for c, (label, value, color) in zip(cols, kpis):
+for c, (label, value, exact, color) in zip(cols, kpis):
     c.markdown(
         f"""
-        <div class="kpi-card" style="--accent:{color};">
+        <div class="kpi-card" style="--accent:{color};" title="{exact}">
             <div class="kpi-label">{label}</div>
             <div class="kpi-value">{value}</div>
         </div>
@@ -276,8 +291,8 @@ def render_metrics_table(data: pd.DataFrame) -> str:
             colors.append(f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
         return colors
 
-    acos_colors = shade(data["ACOS %"], ([224, 231, 255], [67, 56, 202]))   # pale indigo -> deep indigo
-    roas_colors = shade(data["ROAS"], ([224, 242, 254], [3, 105, 161]))     # pale sky -> deep blue
+    acos_colors = shade(data["ACOS %"], ([255, 247, 191], [153, 27, 27]))   # pale yellow -> deep red
+    roas_colors = shade(data["ROAS"], ([255, 247, 191], [194, 65, 12]))     # pale yellow -> deep orange
 
     headers = ["Group", "Impressions", "Clicks", "CTR %", "Spend", "Sales", "ACOS %", "ROAS"]
     rows_html = []
@@ -307,16 +322,16 @@ with col1:
     fig = go.Figure(go.Bar(
         x=table.index, y=table["Spend"],
         marker_color=[GROUP_COLORS[g] for g in table.index],
-        text=table["Spend"].map(lambda v: f"${v:,.0f}"),
+        text=table["Spend"].map(lambda v: human_format(v, prefix="$")),
         textposition="outside",
-        textfont=dict(size=13, color="#0F172A"),
+        textfont=dict(size=13, color="#1C1917"),
     ))
     fig.update_layout(
         template="plotly_white", height=320,
         margin=dict(l=10, r=10, t=10, b=10),
         yaxis_title="Spend ($)",
-        font=dict(size=13, color="#0F172A", family="Segoe UI, sans-serif"),
-        yaxis=dict(title_font=dict(size=13, color="#0F172A")),
+        font=dict(size=13, color="#1C1917", family="Segoe UI, sans-serif"),
+        yaxis=dict(title_font=dict(size=13, color="#1C1917"), tickformat="~s"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -327,16 +342,56 @@ with col2:
         marker_color=[GROUP_COLORS[g] for g in table.index],
         text=table["ROAS"].map(lambda v: f"{v:.2f}"),
         textposition="outside",
-        textfont=dict(size=13, color="#0F172A"),
+        textfont=dict(size=13, color="#1C1917"),
     ))
     fig.update_layout(
         template="plotly_white", height=320,
         margin=dict(l=10, r=10, t=10, b=10),
         yaxis_title="ROAS",
-        font=dict(size=13, color="#0F172A", family="Segoe UI, sans-serif"),
-        yaxis=dict(title_font=dict(size=13, color="#0F172A")),
+        font=dict(size=13, color="#1C1917", family="Segoe UI, sans-serif"),
+        yaxis=dict(title_font=dict(size=13, color="#1C1917")),
     )
     st.plotly_chart(fig, use_container_width=True)
+
+# -----------------------------------------------------------------
+# Contribution pie charts — Spend / Sales / ACOS share by group
+# -----------------------------------------------------------------
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("<b style='font-size:18px;'>Contribution by Portfolio Group</b>", unsafe_allow_html=True)
+
+def contribution_pie(values, title, value_prefix=""):
+    labels = table.index.tolist()
+    colors = [GROUP_COLORS[g] for g in labels]
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values,
+        marker=dict(colors=colors, line=dict(color="#FFFFFF", width=2)),
+        hole=0.4,
+        textinfo="label+percent",
+        textfont=dict(size=12, color="#1C1917"),
+        hovertemplate="%{label}: " + value_prefix + "%{value:,.2f} (%{percent})<extra></extra>",
+    ))
+    fig.update_layout(
+        template="plotly_white", height=340,
+        title=dict(text=f"<b>{title}</b>", font=dict(size=14, color="#1C1917")),
+        margin=dict(l=10, r=10, t=45, b=10),
+        showlegend=False,
+        font=dict(size=12, color="#1C1917", family="Segoe UI, sans-serif"),
+    )
+    return fig
+
+pcol1, pcol2, pcol3 = st.columns(3)
+with pcol1:
+    st.plotly_chart(contribution_pie(table["Spend"], "Spend Contribution", "$"), use_container_width=True)
+with pcol2:
+    st.plotly_chart(contribution_pie(table["Sales"], "Sales Contribution", "$"), use_container_width=True)
+with pcol3:
+    st.plotly_chart(contribution_pie(table["ACOS %"], "ACOS Share (relative)", ""), use_container_width=True)
+
+st.caption(
+    "Spend and Sales pies show each group's true share of the total. "
+    "The ACOS pie shows relative magnitude across groups only — ACOS is a ratio, "
+    "not an additive amount, so its slices don't represent a literal 'share of total ACOS'."
+)
 
 with st.expander("Which portfolios fall into each group?"):
     for g in GROUP_ORDER:
@@ -371,14 +426,14 @@ if trend_df.empty:
     st.info("No data available for this selection.")
     st.stop()
 
-def combo_chart(x, spend, sales, acos, title, x_title, trendline_acos=None):
+def combo_chart(x, spend, sales, acos, title, x_title, width=None):
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
-        go.Bar(x=x, y=spend, name="Spend", marker_color=COLOR_SPEND, opacity=0.85),
+        go.Bar(x=x, y=spend, name="Spend", marker_color=COLOR_SPEND, opacity=0.9),
         secondary_y=False,
     )
     fig.add_trace(
-        go.Bar(x=x, y=sales, name="Sales", marker_color=COLOR_SALES, opacity=0.85),
+        go.Bar(x=x, y=sales, name="Sales", marker_color=COLOR_SALES, opacity=0.9),
         secondary_y=False,
     )
     fig.add_trace(
@@ -389,34 +444,30 @@ def combo_chart(x, spend, sales, acos, title, x_title, trendline_acos=None):
         ),
         secondary_y=True,
     )
-    if trendline_acos is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=x, y=trendline_acos, name="ACOS Trendline", mode="lines",
-                line=dict(color=COLOR_TREND, width=2, dash="dash"),
-            ),
-            secondary_y=True,
-        )
 
-    fig.update_layout(
+    layout_kwargs = dict(
         template="plotly_white",
         barmode="group",
         height=420,
-        title=dict(text=f"<b>{title}</b>", font=dict(size=16, color="#0F172A")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#0F172A")),
+        title=dict(text=f"<b>{title}</b>", font=dict(size=16, color="#1C1917")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#1C1917")),
         margin=dict(l=10, r=10, t=60, b=10),
         hovermode="x unified",
-        font=dict(size=13, color="#0F172A", family="Segoe UI, sans-serif"),
+        font=dict(size=13, color="#1C1917", family="Segoe UI, sans-serif"),
     )
-    fig.update_xaxes(title_text=f"<b>{x_title}</b>")
-    fig.update_yaxes(title_text="<b>Amount ($)</b>", secondary_y=False)
+    if width:
+        layout_kwargs["width"] = width
+    fig.update_layout(**layout_kwargs)
+    fig.update_xaxes(title_text=f"<b>{x_title}</b>", type="category")
+    fig.update_yaxes(title_text="<b>Amount ($)</b>", secondary_y=False, tickformat="~s")
     fig.update_yaxes(title_text="<b>ACOS (%)</b>", secondary_y=True, showgrid=False)
     return fig
 
 # -----------------------------------------------------------------
-# Day-wise trend
+# Day-wise trend (horizontally scrollable as the date range grows)
 # -----------------------------------------------------------------
 st.subheader("Day-wise Trend")
+st.caption("Scroll sideways to see more days as the date range extends →")
 
 daily = (
     trend_df.groupby(trend_df["Date"].dt.date)
@@ -426,12 +477,23 @@ daily = (
     .sort_values("Day")
 )
 daily["ACOS %"] = (daily["Spend"] / daily["Sales"].replace(0, np.nan) * 100).round(2)
+daily["Day"] = daily["Day"].astype(str)
+
+PX_PER_DAY = 55
+MIN_CHART_WIDTH = 900
+chart_width = max(MIN_CHART_WIDTH, len(daily) * PX_PER_DAY)
 
 fig_daily = combo_chart(
     x=daily["Day"], spend=daily["Spend"], sales=daily["Sales"], acos=daily["ACOS %"],
-    title="Daily Spend vs Sales vs ACOS", x_title="Date",
+    title="Daily Spend vs Sales vs ACOS", x_title="Date", width=chart_width,
 )
-st.plotly_chart(fig_daily, use_container_width=True)
+
+daily_html = fig_daily.to_html(include_plotlyjs="cdn", full_html=False)
+components.html(
+    f'<div class="scroll-chart-wrap" style="overflow-x:auto;"><div style="width:{chart_width}px;">{daily_html}</div></div>',
+    height=460,
+    scrolling=True,
+)
 
 # -----------------------------------------------------------------
 # Week-wise trend  (Week 1 = day 1-7 ... Week 5 = day 29 onward)
@@ -454,19 +516,10 @@ weekly["order"] = weekly["Week"].str.extract(r"(\d+)").astype(int)
 weekly = weekly.sort_values("order").drop(columns="order").reset_index(drop=True)
 weekly["ACOS %"] = (weekly["Spend"] / weekly["Sales"].replace(0, np.nan) * 100).round(2)
 
-# Linear trendline on ACOS across weeks
-if len(weekly) >= 2 and weekly["ACOS %"].notna().sum() >= 2:
-    x_idx = np.arange(len(weekly))
-    valid = weekly["ACOS %"].notna()
-    coeffs = np.polyfit(x_idx[valid], weekly.loc[valid, "ACOS %"], 1)
-    trend_vals = np.polyval(coeffs, x_idx)
-else:
-    trend_vals = None
-
 fig_weekly = combo_chart(
     x=weekly["Week"], spend=weekly["Spend"], sales=weekly["Sales"], acos=weekly["ACOS %"],
     title="Weekly Spend vs Sales vs ACOS (Week 1–4 = 7-day blocks, Week 5 = Day 29+)",
-    x_title="Week", trendline_acos=trend_vals,
+    x_title="Week",
 )
 st.plotly_chart(fig_weekly, use_container_width=True)
 
