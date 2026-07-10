@@ -60,17 +60,36 @@ st.caption("Sponsored Products Advertised Product Report — grouped by Portfoli
 # =================================================================
 # Data load
 # =================================================================
-REQUIRED_COLS = [
-    "Date", "Portfolio name", "Country", "Impressions", "Clicks",
-    "Spend - converted", "7 Day Total Sales - converted",
-]
+# Different Amazon report exports use slightly different column names/
+# suffixes (e.g. "Spend" vs "Spend - converted"). These are the accepted
+# variants, in priority order, for each canonical field we need.
+BASE_REQUIRED_COLS = ["Date", "Portfolio name", "Country", "Impressions", "Clicks"]
+SPEND_CANDIDATES = ["Spend - converted", "Spend"]
+SALES_CANDIDATES = ["7 Day Total Sales - converted", "7 Day Total Sales"]
+
+def resolve_column(df: pd.DataFrame, candidates: list[str], label: str) -> str:
+    for c in candidates:
+        if c in df.columns:
+            return c
+    raise ValueError(f"Missing expected column for {label}: tried {candidates}")
 
 @st.cache_data
 def load_data(file) -> pd.DataFrame:
     df = pd.read_excel(file)
-    missing = [c for c in REQUIRED_COLS if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing expected column(s): {missing}")
+    # Normalize column names (some exports have trailing/leading whitespace,
+    # e.g. "7 Day Total Sales ")
+    df.columns = [str(c).strip() for c in df.columns]
+
+    missing_base = [c for c in BASE_REQUIRED_COLS if c not in df.columns]
+    if missing_base:
+        raise ValueError(f"Missing expected column(s): {missing_base}")
+
+    spend_col = resolve_column(df, SPEND_CANDIDATES, "Spend")
+    sales_col = resolve_column(df, SALES_CANDIDATES, "7 Day Total Sales")
+
+    # Standardize to canonical names used throughout the rest of the app
+    df = df.rename(columns={spend_col: "Spend - converted", sales_col: "7 Day Total Sales - converted"})
+
     df["Date"] = pd.to_datetime(df["Date"])
     return df
 
