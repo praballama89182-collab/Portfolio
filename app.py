@@ -3,23 +3,22 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Portfolio Metrics Dashboard", layout="wide", page_icon="📊")
 
 # =================================================================
-# THEME / STYLING  (heat-wave palette: amber -> orange -> red, bold type)
+# THEME / STYLING  (heat-wave palette: amber -> orange -> rose, bold type)
 # =================================================================
-COLOR_SPEND = "#F97316"   # orange
-COLOR_SALES = "#DC2626"   # red
-COLOR_ACOS = "#B91C1C"    # deep red
-COLOR_ROAS = "#F59E0B"    # amber
+COLOR_SPEND = "#F97316"   # orange-500
+COLOR_SALES = "#FBBF24"   # amber-400
+COLOR_ACOS = "#FB7185"    # rose-400 (warm accent, not maroon)
+COLOR_ROAS = "#FDBA74"    # orange-300
 
 GROUP_COLORS = {
-    "CBT": "#FBBF24",       # amber-400
+    "CBT": "#FCD34D",       # amber-300
     "Exclusive": "#FB923C", # orange-400
-    "Ageing": "#F87171",    # red-400
-    "FBA": "#DC2626",       # red-600
+    "Ageing": "#F97316",    # orange-500
+    "FBA": "#FB7185",       # rose-400
 }
 
 def human_format(num, prefix="", decimals=1):
@@ -86,9 +85,6 @@ st.markdown(
     }
     table.metrics-table td:first-child { text-align: left; font-weight: 800; }
     table.metrics-table tr.total-row td { background: #F5F5F4; font-weight: 800; }
-
-    /* Horizontally scrollable day-wise chart container */
-    .scroll-chart-wrap { overflow-x: auto; overflow-y: hidden; border-radius: 10px; border: 1px solid #E7E5E4; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -291,8 +287,8 @@ def render_metrics_table(data: pd.DataFrame) -> str:
             colors.append(f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
         return colors
 
-    acos_colors = shade(data["ACOS %"], ([255, 247, 191], [153, 27, 27]))   # pale yellow -> deep red
-    roas_colors = shade(data["ROAS"], ([255, 247, 191], [194, 65, 12]))     # pale yellow -> deep orange
+    acos_colors = shade(data["ACOS %"], ([255, 247, 191], [251, 113, 133]))  # pale yellow -> rose-400
+    roas_colors = shade(data["ROAS"], ([255, 247, 191], [249, 115, 22]))     # pale yellow -> orange-500
 
     headers = ["Group", "Impressions", "Clicks", "CTR %", "Spend", "Sales", "ACOS %", "ROAS"]
     rows_html = []
@@ -426,7 +422,7 @@ if trend_df.empty:
     st.info("No data available for this selection.")
     st.stop()
 
-def combo_chart(x, spend, sales, acos, title, x_title, width=None):
+def combo_chart(x, spend, sales, acos, title, x_title, x_type="category", rangeslider=False):
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
         go.Bar(x=x, y=spend, name="Spend", marker_color=COLOR_SPEND, opacity=0.9),
@@ -445,20 +441,19 @@ def combo_chart(x, spend, sales, acos, title, x_title, width=None):
         secondary_y=True,
     )
 
-    layout_kwargs = dict(
+    fig.update_layout(
         template="plotly_white",
         barmode="group",
-        height=420,
+        height=460 if rangeslider else 420,
         title=dict(text=f"<b>{title}</b>", font=dict(size=16, color="#1C1917")),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#1C1917")),
         margin=dict(l=10, r=10, t=60, b=10),
         hovermode="x unified",
         font=dict(size=13, color="#1C1917", family="Segoe UI, sans-serif"),
     )
-    if width:
-        layout_kwargs["width"] = width
-    fig.update_layout(**layout_kwargs)
-    fig.update_xaxes(title_text=f"<b>{x_title}</b>", type="category")
+    fig.update_xaxes(title_text=f"<b>{x_title}</b>", type=x_type)
+    if rangeslider:
+        fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.08, bgcolor="#FEF3C7"))
     fig.update_yaxes(title_text="<b>Amount ($)</b>", secondary_y=False, tickformat="~s")
     fig.update_yaxes(title_text="<b>ACOS (%)</b>", secondary_y=True, showgrid=False)
     return fig
@@ -467,7 +462,7 @@ def combo_chart(x, spend, sales, acos, title, x_title, width=None):
 # Day-wise trend (horizontally scrollable as the date range grows)
 # -----------------------------------------------------------------
 st.subheader("Day-wise Trend")
-st.caption("Scroll sideways to see more days as the date range extends →")
+st.caption("Drag the mini range-slider below the chart to scroll/zoom sideways as the date range extends →")
 
 daily = (
     trend_df.groupby(trend_df["Date"].dt.date)
@@ -477,23 +472,13 @@ daily = (
     .sort_values("Day")
 )
 daily["ACOS %"] = (daily["Spend"] / daily["Sales"].replace(0, np.nan) * 100).round(2)
-daily["Day"] = daily["Day"].astype(str)
-
-PX_PER_DAY = 55
-MIN_CHART_WIDTH = 900
-chart_width = max(MIN_CHART_WIDTH, len(daily) * PX_PER_DAY)
+daily["Day"] = pd.to_datetime(daily["Day"])
 
 fig_daily = combo_chart(
     x=daily["Day"], spend=daily["Spend"], sales=daily["Sales"], acos=daily["ACOS %"],
-    title="Daily Spend vs Sales vs ACOS", x_title="Date", width=chart_width,
+    title="Daily Spend vs Sales vs ACOS", x_title="Date", x_type="date", rangeslider=True,
 )
-
-daily_html = fig_daily.to_html(include_plotlyjs="cdn", full_html=False)
-components.html(
-    f'<div class="scroll-chart-wrap" style="overflow-x:auto;"><div style="width:{chart_width}px;">{daily_html}</div></div>',
-    height=460,
-    scrolling=True,
-)
+st.plotly_chart(fig_daily, use_container_width=True)
 
 # -----------------------------------------------------------------
 # Week-wise trend  (Week 1 = day 1-7 ... Week 5 = day 29 onward)
