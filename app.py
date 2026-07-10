@@ -7,48 +7,73 @@ import streamlit as st
 st.set_page_config(page_title="Portfolio Metrics Dashboard", layout="wide", page_icon="📊")
 
 # =================================================================
-# THEME / STYLING  (Looker Studio inspired palette)
+# THEME / STYLING  (cool-toned, high-contrast, bold typography)
 # =================================================================
-COLOR_SPEND = "#4285F4"   # blue
-COLOR_SALES = "#34A853"   # green
-COLOR_ACOS = "#EA4335"    # red
-COLOR_ROAS = "#9334E6"    # purple
-COLOR_TREND = "#F9AB00"   # amber
+COLOR_SPEND = "#2563EB"   # blue
+COLOR_SALES = "#0EA5E9"   # sky blue
+COLOR_ACOS = "#4F46E5"    # indigo
+COLOR_ROAS = "#7C3AED"    # violet
+COLOR_TREND = "#0891B2"   # cyan (trendline)
 
 GROUP_COLORS = {
-    "CBT": "#4285F4",
-    "Exclusive": "#9334E6",
-    "Ageing": "#F9AB00",
-    "FBA": "#34A853",
+    "CBT": "#2563EB",       # blue
+    "Exclusive": "#7C3AED", # violet
+    "Ageing": "#0891B2",    # cyan
+    "FBA": "#0EA5E9",       # sky blue
 }
+
+# Single-hue, cool colormaps for conditional formatting (no rainbow/warm gradients)
+CMAP_ACOS = "Blues"
+CMAP_ROAS = "PuBu"
 
 st.markdown(
     """
     <style>
-    .stApp { background-color: #F8F9FA; }
-    h1, h2, h3 { color: #202124; font-family: 'Google Sans', 'Segoe UI', sans-serif; }
+    .stApp { background-color: #F5F7FA; }
+    h1, h2, h3 {
+        color: #0F172A;
+        font-family: 'Google Sans', 'Segoe UI', sans-serif;
+        font-weight: 800 !important;
+    }
+    p, li, label, .stMarkdown, .stCaption { font-weight: 500; }
+    .stCaption, [data-testid="stCaptionContainer"] { font-weight: 600 !important; color: #334155 !important; }
     .kpi-card {
         background: #FFFFFF;
         border-radius: 12px;
         padding: 16px 18px 14px 18px;
-        box-shadow: 0 1px 3px rgba(60,64,67,0.15), 0 1px 2px rgba(60,64,67,0.10);
-        border-top: 4px solid var(--accent);
+        box-shadow: 0 1px 3px rgba(15,23,42,0.12), 0 1px 2px rgba(15,23,42,0.08);
+        border-top: 5px solid var(--accent);
         text-align: left;
     }
     .kpi-label {
-        font-size: 12.5px;
-        color: #5F6368;
-        font-weight: 600;
+        font-size: 13px;
+        color: #334155;
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.04em;
         margin-bottom: 4px;
     }
     .kpi-value {
-        font-size: 26px;
-        font-weight: 700;
-        color: #202124;
+        font-size: 28px;
+        font-weight: 800;
+        color: #0F172A;
     }
     div[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+
+    /* HTML metrics table (bold, high-contrast, cool tones) */
+    .metrics-table-wrap { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,0.12); }
+    table.metrics-table { border-collapse: collapse; width: 100%; font-size: 15px; background: #FFFFFF; }
+    table.metrics-table th {
+        background: #0F172A; color: #FFFFFF; font-weight: 800;
+        text-align: right; padding: 10px 14px; white-space: nowrap;
+    }
+    table.metrics-table th:first-child { text-align: left; }
+    table.metrics-table td {
+        padding: 10px 14px; text-align: right; font-weight: 700; color: #0F172A;
+        border-bottom: 1px solid #E2E8F0; white-space: nowrap;
+    }
+    table.metrics-table td:first-child { text-align: left; font-weight: 800; }
+    table.metrics-table tr.total-row td { background: #E2E8F0; font-weight: 800; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -226,54 +251,90 @@ st.write("")
 # =================================================================
 st.subheader("Metrics by Portfolio Group")
 
-def highlight_total(row):
-    return ["font-weight:700; background-color:#F1F3F4" if row.name == "TOTAL" else "" for _ in row]
+def render_metrics_table(data: pd.DataFrame) -> str:
+    fmt = {
+        "Impressions": lambda v: f"{v:,.0f}",
+        "Clicks": lambda v: f"{v:,.0f}",
+        "CTR %": lambda v: f"{v:.2f}%",
+        "Spend": lambda v: f"${v:,.2f}",
+        "Sales": lambda v: f"${v:,.2f}",
+        "ACOS %": lambda v: f"{v:.2f}%",
+        "ROAS": lambda v: f"{v:.2f}",
+    }
 
-styled = (
-    full_table.style
-    .format({
-        "Impressions": "{:,.0f}",
-        "Clicks": "{:,.0f}",
-        "CTR %": "{:.2f}%",
-        "Spend": "${:,.2f}",
-        "Sales": "${:,.2f}",
-        "ACOS %": "{:.2f}%",
-        "ROAS": "{:.2f}",
-    })
-    .background_gradient(subset=["ACOS %"], cmap="RdYlGn_r")
-    .background_gradient(subset=["ROAS"], cmap="RdYlGn")
-    .apply(highlight_total, axis=1)
-)
-st.dataframe(styled, use_container_width=True)
+    # Cool, single-hue intensity shading (darker = higher value) — no rainbow gradients
+    def shade(series: pd.Series, cmap_hex_stops):
+        s = series.astype(float)
+        lo, hi = s.min(), s.max()
+        rng = (hi - lo) or 1.0
+        norm = (s - lo) / rng
+        c0 = np.array(cmap_hex_stops[0])
+        c1 = np.array(cmap_hex_stops[1])
+        colors = []
+        for n in norm:
+            rgb = (c0 + (c1 - c0) * n).astype(int)
+            colors.append(f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
+        return colors
+
+    acos_colors = shade(data["ACOS %"], ([224, 231, 255], [67, 56, 202]))   # pale indigo -> deep indigo
+    roas_colors = shade(data["ROAS"], ([224, 242, 254], [3, 105, 161]))     # pale sky -> deep blue
+
+    headers = ["Group", "Impressions", "Clicks", "CTR %", "Spend", "Sales", "ACOS %", "ROAS"]
+    rows_html = []
+    for i, (idx, row) in enumerate(data.iterrows()):
+        is_total = idx == "TOTAL"
+        cells = [f"<td>{idx}</td>"]
+        for col in ["Impressions", "Clicks", "CTR %", "Spend", "Sales"]:
+            cells.append(f"<td>{fmt[col](row[col])}</td>")
+        acos_bg = "" if is_total else f' style="background:{acos_colors[i]};"'
+        roas_bg = "" if is_total else f' style="background:{roas_colors[i]};"'
+        cells.append(f"<td{acos_bg}>{fmt['ACOS %'](row['ACOS %'])}</td>")
+        cells.append(f"<td{roas_bg}>{fmt['ROAS'](row['ROAS'])}</td>")
+        row_class = ' class="total-row"' if is_total else ""
+        rows_html.append(f"<tr{row_class}>{''.join(cells)}</tr>")
+
+    header_html = "".join(f"<th>{h}</th>" for h in headers)
+    return (
+        '<div class="metrics-table-wrap"><table class="metrics-table">'
+        f"<thead><tr>{header_html}</tr></thead><tbody>{''.join(rows_html)}</tbody></table></div>"
+    )
+
+st.markdown(render_metrics_table(full_table), unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 with col1:
-    st.markdown("**Spend by Group**")
+    st.markdown("<b style='font-size:16px;'>Spend by Group</b>", unsafe_allow_html=True)
     fig = go.Figure(go.Bar(
         x=table.index, y=table["Spend"],
         marker_color=[GROUP_COLORS[g] for g in table.index],
         text=table["Spend"].map(lambda v: f"${v:,.0f}"),
         textposition="outside",
+        textfont=dict(size=13, color="#0F172A"),
     ))
     fig.update_layout(
         template="plotly_white", height=320,
         margin=dict(l=10, r=10, t=10, b=10),
         yaxis_title="Spend ($)",
+        font=dict(size=13, color="#0F172A", family="Segoe UI, sans-serif"),
+        yaxis=dict(title_font=dict(size=13, color="#0F172A")),
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.markdown("**ROAS by Group**")
+    st.markdown("<b style='font-size:16px;'>ROAS by Group</b>", unsafe_allow_html=True)
     fig = go.Figure(go.Bar(
         x=table.index, y=table["ROAS"],
         marker_color=[GROUP_COLORS[g] for g in table.index],
         text=table["ROAS"].map(lambda v: f"{v:.2f}"),
         textposition="outside",
+        textfont=dict(size=13, color="#0F172A"),
     ))
     fig.update_layout(
         template="plotly_white", height=320,
         margin=dict(l=10, r=10, t=10, b=10),
         yaxis_title="ROAS",
+        font=dict(size=13, color="#0F172A", family="Segoe UI, sans-serif"),
+        yaxis=dict(title_font=dict(size=13, color="#0F172A")),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -341,14 +402,15 @@ def combo_chart(x, spend, sales, acos, title, x_title, trendline_acos=None):
         template="plotly_white",
         barmode="group",
         height=420,
-        title=title,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        title=dict(text=f"<b>{title}</b>", font=dict(size=16, color="#0F172A")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12, color="#0F172A")),
         margin=dict(l=10, r=10, t=60, b=10),
         hovermode="x unified",
+        font=dict(size=13, color="#0F172A", family="Segoe UI, sans-serif"),
     )
-    fig.update_xaxes(title_text=x_title)
-    fig.update_yaxes(title_text="Amount ($)", secondary_y=False)
-    fig.update_yaxes(title_text="ACOS (%)", secondary_y=True, showgrid=False)
+    fig.update_xaxes(title_text=f"<b>{x_title}</b>")
+    fig.update_yaxes(title_text="<b>Amount ($)</b>", secondary_y=False)
+    fig.update_yaxes(title_text="<b>ACOS (%)</b>", secondary_y=True, showgrid=False)
     return fig
 
 # -----------------------------------------------------------------
@@ -409,10 +471,18 @@ fig_weekly = combo_chart(
 st.plotly_chart(fig_weekly, use_container_width=True)
 
 with st.expander("Weekly breakdown (table)"):
-    st.dataframe(
-        weekly.style.format({"Spend": "${:,.2f}", "Sales": "${:,.2f}", "ACOS %": "{:.2f}%"}),
-        use_container_width=True,
+    wk_headers = "".join(f"<th>{h}</th>" for h in ["Week", "Spend", "Sales", "ACOS %"])
+    wk_rows = []
+    for _, r in weekly.iterrows():
+        wk_rows.append(
+            f"<tr><td>{r['Week']}</td><td>${r['Spend']:,.2f}</td>"
+            f"<td>${r['Sales']:,.2f}</td><td>{r['ACOS %']:.2f}%</td></tr>"
+        )
+    wk_table_html = (
+        '<div class="metrics-table-wrap"><table class="metrics-table">'
+        f"<thead><tr>{wk_headers}</tr></thead><tbody>{''.join(wk_rows)}</tbody></table></div>"
     )
+    st.markdown(wk_table_html, unsafe_allow_html=True)
 
 st.caption(
     "Week bucketing: Day 1 = earliest date in the current selection. "
